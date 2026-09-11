@@ -255,47 +255,64 @@ def calcular_saldo(disp_longa: pd.DataFrame, alocacoes: pd.DataFrame) -> pd.Data
 
 
 def build_ordens_base(escopo_centro: pd.DataFrame) -> pd.DataFrame:
-    """Pré-lista UMA linha por Ordem do escopo (não mais por Operação/vaga
-    de executante) — o planejador só precisa preencher o Colaborador
-    responsável pela Ordem inteira. Horas Programadas já vem preenchida
-    com a soma da Duração Normal de todas as operações da Ordem."""
+    """Pré-lista uma linha por 'vaga de executante' de cada Ordem do
+    escopo. Se a Ordem exigir N executantes (maior valor de 'Executantes
+    (Nº de Pessoas)' entre suas Operações), ela aparece N vezes — uma para
+    cada executante ser atribuído. Horas Programadas já vem preenchida com
+    a soma da Duração Normal de todas as operações da Ordem (cada
+    executante é debitado o total cheio, pois trabalham em paralelo)."""
     agg = escopo_centro.groupby("Ordem", as_index=False).agg(
         Plano=("Plano", "first"),
         CS_Plano=("C/S Plano", "first"),
         Texto_Breve=("Texto Breve", "first"),
         Qtd_Operacoes=("Operação", "nunique"),
         Duracao_Total=("Duração Normal", "sum"),
+        Executantes_Necessarios=("Executantes (Nº de Pessoas)", "max"),
     )
     agg = agg.rename(columns={
         "CS_Plano": "C/S Plano", "Texto_Breve": "Texto Breve",
         "Qtd_Operacoes": "Qtd. Operações", "Duracao_Total": "Horas Programadas",
+        "Executantes_Necessarios": "Executantes Necessários",
     })
-    agg["Colaborador"] = ""
-    agg["Matrícula"] = ""
-    agg["Dia_Semana"] = DIAS_SEMANA[0]
-    agg["Reprogramada"] = False
-    cols = ["Ordem", "Plano", "C/S Plano", "Texto Breve", "Qtd. Operações",
+
+    linhas = []
+    for _, ordem_row in agg.iterrows():
+        n_exec = int(ordem_row["Executantes Necessários"]) if ordem_row["Executantes Necessários"] >= 1 else 1
+        for slot in range(1, n_exec + 1):
+            linhas.append({
+                "Ordem": ordem_row["Ordem"],
+                "Plano": ordem_row["Plano"],
+                "C/S Plano": ordem_row["C/S Plano"],
+                "Texto Breve": ordem_row["Texto Breve"],
+                "Qtd. Operações": ordem_row["Qtd. Operações"],
+                "Executante": f"{slot}/{n_exec}",
+                "Colaborador": "",
+                "Matrícula": "",
+                "Dia_Semana": DIAS_SEMANA[0],
+                "Horas Programadas": float(ordem_row["Horas Programadas"]),
+                "Reprogramada": False,
+            })
+    cols = ["Ordem", "Plano", "C/S Plano", "Texto Breve", "Qtd. Operações", "Executante",
             "Colaborador", "Matrícula", "Dia_Semana", "Horas Programadas", "Reprogramada"]
-    return agg[cols].sort_values("Ordem").reset_index(drop=True)
+    return pd.DataFrame(linhas, columns=cols)
 
 
 def reconciliar_ordens(ordens_base: pd.DataFrame, alocacoes_centro: pd.DataFrame) -> pd.DataFrame:
-    """Preenche as linhas pré-listadas (por Ordem) com o que já foi salvo
-    anteriormente para este Centro de Trabalho — preserva o trabalho do
+    """Preenche as linhas pré-listadas (por vaga de executante da Ordem)
+    com o que já foi salvo anteriormente para este Centro de Trabalho,
+    casando por Ordem na ordem de lançamento — preserva o trabalho do
     planejador ao trocar de Centro e voltar."""
     if alocacoes_centro.empty:
         return ordens_base
     ordens_base = ordens_base.copy()
-    mapa = alocacoes_centro.drop_duplicates("Ordem").set_index("Ordem")
-    for idx, row in ordens_base.iterrows():
-        ordem = row["Ordem"]
-        if ordem in mapa.index:
-            aloc = mapa.loc[ordem]
-            ordens_base.loc[idx, "Colaborador"] = aloc["Colaborador"]
-            ordens_base.loc[idx, "Matrícula"] = aloc["Matrícula"]
-            ordens_base.loc[idx, "Dia_Semana"] = aloc["Dia_Semana"]
-            ordens_base.loc[idx, "Horas Programadas"] = aloc["Horas Programadas"]
-            ordens_base.loc[idx, "Reprogramada"] = aloc["Reprogramada"]
+    for ordem, grupo in alocacoes_centro.groupby("Ordem"):
+        idx_slots = ordens_base.index[ordens_base["Ordem"] == ordem].tolist()
+        for slot_idx, (_, aloc) in zip(idx_slots, grupo.iterrows()):
+            ordens_base.loc[slot_idx, "Colaborador"] = aloc["Colaborador"]
+            ordens_base.loc[slot_idx, "Matrícula"] = aloc["Matrícula"]
+            ordens_base.loc[slot_idx, "Dia_Semana"] = aloc["Dia_Semana"]
+            ordens_base.loc[slot_idx, "Horas Programadas"] = aloc["Horas Programadas"]
+            ordens_base.loc[slot_idx, "Reprogramada"] = aloc["Reprogramada"]
     return ordens_base
 
 
@@ -409,6 +426,131 @@ def build_gantt_df(saida_interna: pd.DataFrame, turnos_cfg: dict) -> pd.DataFram
     return df
 
 
+@st.fragment
+def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> None:
+    """Mesa de Atribuição isolada como FRAGMENTO do Streamlit: editar uma
+    célula aqui dentro (Colaborador, Dia_Semana, Horas...) reexecuta SÓ
+    esta função — não a página inteira (sidebar, Triagem, abas Gantt/
+    Exportar). É isso que dá a agilidade pedida: sem isso, CADA edição
+    reexecutava o script do zero, e cliques rápidos em sequência podiam
+    ser perdidos/revertidos enquanto o rerun anterior ainda processava."""
+    if escopo.empty:
+        st.info("Nenhuma Ordem no escopo fechado ainda.")
+        return
+
+    centros = sorted(escopo["Centro de Trabalho"].dropna().unique())
+    centro_sel = st.selectbox("Centro de Trabalho", centros, key="centro_sel_mesa")
+
+    tecnicos_centro = disp_longa[disp_longa["Centro Trabalho"] == centro_sel][
+        ["Colaborador", "Matrícula", "Turno"]
+    ].drop_duplicates()
+    escopo_centro = escopo[escopo["Centro de Trabalho"] == centro_sel].copy()
+
+    if tecnicos_centro.empty:
+        st.warning("Nenhum técnico cadastrado na Base A para este Centro de Trabalho.")
+    if escopo_centro.empty:
+        st.warning("Nenhuma Operação do escopo fechado pertence a este Centro de Trabalho.")
+
+    st.write(
+        "**Aloque as Ordens** — cada vaga de executante já aparece listada abaixo com as Horas "
+        "Programadas pré-preenchidas (soma da Duração Normal de todas as Operações da Ordem); "
+        "basta selecionar o **Colaborador** (o Turno é o cadastrado na Disponibilidade dele — "
+        "ajuste Dia/Horas se necessário). Se a Ordem exigir 2 executantes, ela aparece 2 vezes."
+    )
+
+    editor_state_key = f"ordens_editor_data_{centro_sel}"
+    if editor_state_key not in st.session_state:
+        ordens_base = build_ordens_base(escopo_centro)
+        master = st.session_state["alocacoes"]
+        alocacoes_centro_atual = master[master["Centro Trabalho"] == centro_sel]
+        st.session_state[editor_state_key] = reconciliar_ordens(ordens_base, alocacoes_centro_atual)
+
+    mapa_matricula = dict(zip(tecnicos_centro["Colaborador"], tecnicos_centro["Matrícula"]))
+
+    edited = st.data_editor(
+        st.session_state[editor_state_key],
+        num_rows="fixed",
+        use_container_width=True,
+        key=f"editor_{centro_sel}",
+        column_order=["Ordem", "Plano", "C/S Plano", "Texto Breve", "Qtd. Operações", "Executante",
+                       "Colaborador", "Dia_Semana", "Horas Programadas", "Reprogramada"],
+        column_config={
+            "Ordem": st.column_config.TextColumn("Ordem", disabled=True),
+            "Plano": st.column_config.TextColumn("Plano", disabled=True),
+            "C/S Plano": st.column_config.TextColumn("C/S Plano", disabled=True),
+            "Texto Breve": st.column_config.TextColumn("Texto Breve", disabled=True, width="large"),
+            "Qtd. Operações": st.column_config.NumberColumn("Qtd. Operações", disabled=True),
+            "Executante": st.column_config.TextColumn(
+                "Executante", disabled=True, help="Posição da vaga dentro da Ordem (ex.: 1/2 = 1º de 2 necessários).",
+            ),
+            "Colaborador": st.column_config.SelectboxColumn(
+                "Colaborador", options=[""] + tecnicos_centro["Colaborador"].tolist(),
+                help="Único campo obrigatório — selecione quem vai executar esta vaga.",
+            ),
+            "Dia_Semana": st.column_config.SelectboxColumn("Dia_Semana", options=DIAS_SEMANA),
+            "Horas Programadas": st.column_config.NumberColumn(
+                "Horas Programadas", min_value=0.0, step=0.5,
+                help="Pré-preenchida com a soma da Duração Normal das Operações da Ordem — ajuste se necessário.",
+            ),
+            "Reprogramada": st.column_config.CheckboxColumn("Reprogramada", default=False),
+        },
+    )
+
+    st.session_state[editor_state_key] = edited
+
+    edited_completo = edited.copy()
+    edited_completo["Matrícula"] = edited_completo["Colaborador"].map(mapa_matricula)
+    edited_completo["Centro Trabalho"] = centro_sel
+    edited_validas = edited_completo[edited_completo["Colaborador"].astype(str).str.strip() != ""].copy()
+
+    master = st.session_state["alocacoes"]
+    st.session_state["alocacoes"] = pd.concat(
+        [master[master["Centro Trabalho"] != centro_sel],
+         edited_validas[ALOCACOES_COLS] if not edited_validas.empty else pd.DataFrame(columns=ALOCACOES_COLS)],
+        ignore_index=True,
+    )
+
+    st.divider()
+
+    st.write("**Saldo de horas e alertas de sobrecarga:**")
+    calcular_click = st.button("🔄 Calcular Saldo", key="btn_calcular_saldo")
+
+    if calcular_click:
+        st.session_state["saldo_resultado"] = calcular_saldo(disp_longa, st.session_state["alocacoes"])
+        st.session_state["saldo_fp"] = _fingerprint(st.session_state["alocacoes"])
+
+    if "saldo_resultado" in st.session_state:
+        fp_atual = _fingerprint(st.session_state["alocacoes"])
+        if st.session_state.get("saldo_fp") != fp_atual:
+            st.caption("⚠️ A alocação mudou desde o último cálculo — clique em **Calcular Saldo** para atualizar.")
+
+        saldo_centro = st.session_state["saldo_resultado"]
+        saldo_centro = saldo_centro[saldo_centro["Centro Trabalho"] == centro_sel]
+        pivot_saldo = saldo_centro.pivot_table(
+            index=["Colaborador", "Matrícula"], columns="Dia_Semana", values="Saldo Restante", aggfunc="sum"
+        ).reindex(columns=DIAS_SEMANA)
+
+        def _highlight_negativo(v):
+            if pd.isna(v):
+                return ""
+            return "background-color:#ffcccc; color:#900" if v < 0 else ""
+
+        st.dataframe(pivot_saldo.style.map(_highlight_negativo).format("{:.1f}"), use_container_width=True)
+
+        if (pivot_saldo < 0).any().any():
+            st.error("⚠️ Há técnico(s) com saldo negativo (capacidade estourada) neste Centro de Trabalho.")
+
+        overload = saldo_centro[saldo_centro["Saldo Restante"] < 0]
+        if not overload.empty:
+            linhas_overload = "\n".join(
+                f"- **{row['Colaborador']}** ({row['Dia_Semana']}): saldo {row['Saldo Restante']:.1f} h"
+                for _, row in overload.iterrows()
+            )
+            st.warning(f"🔴 Sobrecarga:\n\n{linhas_overload}")
+    else:
+        st.info("Clique em **Calcular Saldo** para ver o saldo de horas e alertas de sobrecarga.")
+
+
 # =============================================================================
 # 3) ESTADO
 # =============================================================================
@@ -499,7 +641,11 @@ with tab_mesa:
     # 1) TRIAGEM — seleção de Ordens (agrupa automaticamente as Operações)
     # -------------------------------------------------------------------
     st.subheader("1️⃣ Triagem — selecione as Ordens que entram na semana")
-    st.caption("Ao marcar uma Ordem, TODAS as suas Operações são incluídas automaticamente no escopo fechado abaixo.")
+    st.caption(
+        "Marque as Ordens abaixo e clique em **Carregar Ordens** para trazê-las (com todas as "
+        "suas Operações) para o escopo fechado. Nada é aplicado automaticamente ao marcar — assim "
+        "você pode marcar várias Ordens seguidas sem perder cliques."
+    )
 
     backlog = build_backlog(iw37n)
     backlog.insert(0, "Incluir na Semana", backlog["Ordem"].isin(st.session_state["ordens_selecionadas"]))
@@ -516,9 +662,22 @@ with tab_mesa:
             "HH Total": st.column_config.NumberColumn("HH Total", format="%.1f"),
         },
     )
-    st.session_state["ordens_selecionadas"] = set(
-        backlog_editado.loc[backlog_editado["Incluir na Semana"], "Ordem"]
-    )
+
+    carregar_ordens_click = st.button("📥 Carregar Ordens", key="btn_carregar_ordens")
+    if carregar_ordens_click:
+        st.session_state["ordens_selecionadas"] = set(
+            backlog_editado.loc[backlog_editado["Incluir na Semana"], "Ordem"]
+        )
+        # Força reconstrução das mesas de atribuição (por centro) com o novo escopo,
+        # sem perder as alocações já feitas (que continuam em st.session_state["alocacoes"]).
+        for k in list(st.session_state.keys()):
+            if k.startswith("ordens_editor_data_"):
+                del st.session_state[k]
+        st.success(f"{len(st.session_state['ordens_selecionadas'])} Ordem(ns) carregada(s) no escopo da semana.")
+
+    selecao_atual = set(backlog_editado.loc[backlog_editado["Incluir na Semana"], "Ordem"])
+    if selecao_atual != st.session_state["ordens_selecionadas"]:
+        st.caption("⚠️ Há marcações não carregadas — clique em **Carregar Ordens** para aplicá-las.")
 
     st.divider()
 
@@ -546,114 +705,7 @@ with tab_mesa:
     # 3) MESA DE ATRIBUIÇÃO — Colaborador x Ordem x Dia x Horas
     # -------------------------------------------------------------------
     st.subheader("3️⃣ Mesa de Atribuição")
-
-    if escopo.empty:
-        st.stop()
-
-    centros = sorted(escopo["Centro de Trabalho"].dropna().unique())
-    centro_sel = st.selectbox("Centro de Trabalho", centros)
-
-    tecnicos_centro = disp_longa[disp_longa["Centro Trabalho"] == centro_sel][
-        ["Colaborador", "Matrícula", "Turno"]
-    ].drop_duplicates()
-    escopo_centro = escopo[escopo["Centro de Trabalho"] == centro_sel].copy()
-
-    if tecnicos_centro.empty:
-        st.warning("Nenhum técnico cadastrado na Base A para este Centro de Trabalho.")
-    if escopo_centro.empty:
-        st.warning("Nenhuma Operação do escopo fechado pertence a este Centro de Trabalho.")
-
-    # ---- Editor de alocações — uma linha JÁ LISTADA por ORDEM ----
-    st.write(
-        "**Aloque as Ordens** — cada Ordem do escopo já aparece listada abaixo com as Horas "
-        "Programadas pré-preenchidas (soma da Duração Normal de todas as suas Operações); "
-        "basta selecionar o **Colaborador** responsável pela Ordem inteira (o Turno é o "
-        "cadastrado na Disponibilidade dele — ajuste Dia/Horas se necessário):"
-    )
-
-    ordens_base = build_ordens_base(escopo_centro)
-    master = st.session_state["alocacoes"]
-    alocacoes_centro_atual = master[master["Centro Trabalho"] == centro_sel]
-    ordens_editor = reconciliar_ordens(ordens_base, alocacoes_centro_atual)
-
-    mapa_matricula = dict(zip(tecnicos_centro["Colaborador"], tecnicos_centro["Matrícula"]))
-
-    edited = st.data_editor(
-        ordens_editor,
-        num_rows="fixed",
-        use_container_width=True,
-        key=f"editor_{centro_sel}",
-        column_config={
-            "Ordem": st.column_config.TextColumn("Ordem", disabled=True),
-            "Plano": st.column_config.TextColumn("Plano", disabled=True),
-            "C/S Plano": st.column_config.TextColumn("C/S Plano", disabled=True),
-            "Texto Breve": st.column_config.TextColumn("Texto Breve", disabled=True, width="large"),
-            "Qtd. Operações": st.column_config.NumberColumn("Qtd. Operações", disabled=True),
-            "Colaborador": st.column_config.SelectboxColumn(
-                "Colaborador", options=[""] + tecnicos_centro["Colaborador"].tolist(),
-                help="Único campo obrigatório — selecione quem vai executar esta Ordem.",
-            ),
-            "Matrícula": st.column_config.TextColumn("Matrícula", disabled=True),
-            "Dia_Semana": st.column_config.SelectboxColumn("Dia_Semana", options=DIAS_SEMANA),
-            "Horas Programadas": st.column_config.NumberColumn(
-                "Horas Programadas", min_value=0.0, step=0.5,
-                help="Pré-preenchida com a soma da Duração Normal das Operações da Ordem — ajuste se necessário.",
-            ),
-            "Reprogramada": st.column_config.CheckboxColumn("Reprogramada", default=False),
-        },
-    )
-
-    # Só entram na alocação mestre as linhas com Colaborador preenchido
-    edited["Matrícula"] = edited["Colaborador"].map(mapa_matricula)
-    edited["Centro Trabalho"] = centro_sel
-    edited_validas = edited[edited["Colaborador"].astype(str).str.strip() != ""].copy()
-
-    st.session_state["alocacoes"] = pd.concat(
-        [master[master["Centro Trabalho"] != centro_sel],
-         edited_validas[ALOCACOES_COLS] if not edited_validas.empty else pd.DataFrame(columns=ALOCACOES_COLS)],
-        ignore_index=True,
-    )
-
-    st.divider()
-
-    # ---- Saldo / Sobrecarga — SOB DEMANDA ----
-    st.write("**Saldo de horas e alertas de sobrecarga:**")
-    calcular_click = st.button("🔄 Calcular Saldo", key="btn_calcular_saldo")
-
-    if calcular_click:
-        st.session_state["saldo_resultado"] = calcular_saldo(disp_longa, st.session_state["alocacoes"])
-        st.session_state["saldo_fp"] = _fingerprint(st.session_state["alocacoes"])
-
-    if "saldo_resultado" in st.session_state:
-        fp_atual = _fingerprint(st.session_state["alocacoes"])
-        if st.session_state.get("saldo_fp") != fp_atual:
-            st.caption("⚠️ A alocação mudou desde o último cálculo — clique em **Calcular Saldo** para atualizar.")
-
-        saldo_centro = st.session_state["saldo_resultado"]
-        saldo_centro = saldo_centro[saldo_centro["Centro Trabalho"] == centro_sel]
-        pivot_saldo = saldo_centro.pivot_table(
-            index=["Colaborador", "Matrícula"], columns="Dia_Semana", values="Saldo Restante", aggfunc="sum"
-        ).reindex(columns=DIAS_SEMANA)
-
-        def _highlight_negativo(v):
-            if pd.isna(v):
-                return ""
-            return "background-color:#ffcccc; color:#900" if v < 0 else ""
-
-        st.dataframe(pivot_saldo.style.map(_highlight_negativo).format("{:.1f}"), use_container_width=True)
-
-        if (pivot_saldo < 0).any().any():
-            st.error("⚠️ Há técnico(s) com saldo negativo (capacidade estourada) neste Centro de Trabalho.")
-
-        overload = saldo_centro[saldo_centro["Saldo Restante"] < 0]
-        if not overload.empty:
-            linhas_overload = "\n".join(
-                f"- **{row['Colaborador']}** ({row['Dia_Semana']}): saldo {row['Saldo Restante']:.1f} h"
-                for _, row in overload.iterrows()
-            )
-            st.warning(f"🔴 Sobrecarga:\n\n{linhas_overload}")
-    else:
-        st.info("Clique em **Calcular Saldo** para ver o saldo de horas e alertas de sobrecarga.")
+    render_mesa_atribuicao(escopo, disp_longa)
 
 # =============================================================================
 # ABA 2 — Cronograma (Gantt)
