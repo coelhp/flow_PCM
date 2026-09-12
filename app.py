@@ -454,8 +454,9 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
     st.write(
         "**Aloque as Ordens** — cada vaga de executante já aparece listada abaixo com as Horas "
         "Programadas pré-preenchidas (soma da Duração Normal de todas as Operações da Ordem); "
-        "basta selecionar o **Colaborador** (o Turno é o cadastrado na Disponibilidade dele — "
-        "ajuste Dia/Horas se necessário). Se a Ordem exigir 2 executantes, ela aparece 2 vezes."
+        "selecione o **Colaborador** em quantas linhas quiser e só então clique em **Aplicar "
+        "Atribuições** (o Turno é o cadastrado na Disponibilidade dele — ajuste Dia/Horas se "
+        "necessário). Se a Ordem exigir 2 executantes, ela aparece 2 vezes."
     )
 
     editor_state_key = f"ordens_editor_data_{centro_sel}"
@@ -496,19 +497,37 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
         },
     )
 
-    st.session_state[editor_state_key] = edited
+    # IMPORTANTE: NÃO realimentamos `edited` de volta como `data` do editor a cada
+    # rerun (isso é o que fazia o Streamlit achar que "os dados mudaram por fora" e
+    # resetar o rastreamento de edições — perdendo a próxima ação em sequência). A
+    # base passada ao editor (`st.session_state[editor_state_key]`) só é atualizada
+    # no clique do botão abaixo — o widget acumula sozinho, internamente, qualquer
+    # quantidade de edições feitas entre um clique e outro.
+    aplicar_click = st.button("💾 Aplicar Atribuições", key=f"btn_aplicar_{centro_sel}")
 
-    edited_completo = edited.copy()
-    edited_completo["Matrícula"] = edited_completo["Colaborador"].map(mapa_matricula)
-    edited_completo["Centro Trabalho"] = centro_sel
-    edited_validas = edited_completo[edited_completo["Colaborador"].astype(str).str.strip() != ""].copy()
+    if aplicar_click:
+        st.session_state[editor_state_key] = edited
 
-    master = st.session_state["alocacoes"]
-    st.session_state["alocacoes"] = pd.concat(
-        [master[master["Centro Trabalho"] != centro_sel],
-         edited_validas[ALOCACOES_COLS] if not edited_validas.empty else pd.DataFrame(columns=ALOCACOES_COLS)],
-        ignore_index=True,
-    )
+        edited_completo = edited.copy()
+        edited_completo["Matrícula"] = edited_completo["Colaborador"].map(mapa_matricula)
+        edited_completo["Centro Trabalho"] = centro_sel
+        edited_validas = edited_completo[edited_completo["Colaborador"].astype(str).str.strip() != ""].copy()
+
+        master = st.session_state["alocacoes"]
+        st.session_state["alocacoes"] = pd.concat(
+            [master[master["Centro Trabalho"] != centro_sel],
+             edited_validas[ALOCACOES_COLS] if not edited_validas.empty else pd.DataFrame(columns=ALOCACOES_COLS)],
+            ignore_index=True,
+        )
+        st.session_state[f"aplicado_fp_{centro_sel}"] = _fingerprint(edited)
+        st.success("Atribuições aplicadas!")
+
+    fp_editor_atual = _fingerprint(edited)
+    if st.session_state.get(f"aplicado_fp_{centro_sel}") != fp_editor_atual:
+        st.caption(
+            "⚠️ Há edições ainda não aplicadas nesta tabela — clique em **Aplicar Atribuições** "
+            "para salvá-las (elas só entram no Saldo/Cronograma/Exportação depois disso)."
+        )
 
     st.divider()
 
