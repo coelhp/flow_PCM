@@ -1,4 +1,4 @@
-# Programação Semanal — PCM (SAP PM)
+# Programação Semanal | PCM (SAP PM)
 
 App Streamlit para nivelamento de capacidade e atribuição semanal de
 manutentores a ordens de manutenção, a partir de duas exportações do SAP
@@ -25,10 +25,10 @@ Arquivo principal: `programacao_semanal.py` · `streamlit run programacao_semana
 | Coluna | Observação |
 |---|---|
 | `Ordem` | chave da ordem de manutenção |
-| `Plano` | código do Plano de Manutenção, se houver — em branco/0 = corretiva avulsa. Gera automaticamente `C/S Plano` ("Com Plano"/"Sem Plano") |
+| `Plano` | código do Plano de Manutenção, se houver - em branco/0 = corretiva avulsa. Gera automaticamente `C/S Plano` ("Com Plano"/"Sem Plano") |
 | `Operação` | número da operação dentro da ordem (ex. `0010`) — mantida como referência; a alocação é feita pela **Ordem**, não por operação |
 | `Tipo de Ordem`, `Local de Instalação`, `Denominação do loc. instalação`, `Texto Breve`, `Prioridade` | descritivos |
-| `Duração Normal` | horas da operação — somada por Ordem para sugerir "Horas Programadas" |
+| `Duração Normal` | horas da operação - somada por Ordem para sugerir "Horas Programadas" |
 | `Executantes (Nº de Pessoas)` | usa-se o **maior** valor entre as operações da ordem para saber quantas vagas de executante gerar |
 | `Data de entrada`, `Data-base fim`, `Centro de Trabalho`, `Status Usuário` | descritivos/filtros |
 
@@ -50,7 +50,7 @@ pandas, por padrão, apagaria zeros à esquerda (ex. `"0010"` → `10`).
 ```
 
 **Toda ação pesada é sob demanda (botão).** Nada recalcula automaticamente a
-cada edição — decisão tomada depois de diagnosticar perda de edições em
+cada edição ou decisão tomada depois de diagnosticar perda de edições em
 sequência (ver seção 4).
 
 ### 2.1 Triagem → Escopo Fechado
@@ -98,7 +98,7 @@ Texto Breve | Equipamento | Local de Instalação | Horas Programadas | Reprogra
 - Upload (ou colar) das duas bases.
 - Data de referência ("hoje" para cálculo de dias).
 - Segunda-feira da semana de programação (base para `Data_Programada`).
-- Horários dos turnos **A, B, C, ADM** — início/fim digitados manualmente em
+- Horários dos turnos **A, B, C, ADM** - início/fim digitados manualmente em
   texto (`HH:MM`), não seletor; formato inválido cai no padrão com aviso.
 
 ---
@@ -108,7 +108,7 @@ Texto Breve | Equipamento | Local de Instalação | Horas Programadas | Reprogra
 - **Antipadrão de perda de edição (`st.data_editor`):** reescrever o
   resultado editado de volta como `data` do próprio editor a cada rerun faz
   o Streamlit achar que "os dados mudaram por fora" e resetar o
-  rastreamento de edições em andamento — perdendo a próxima ação em
+  rastreamento de edições em andamento - perdendo a próxima ação em
   sequência. Correção: a base do editor só é escrita na criação e no clique
   do botão de aplicar; nunca a cada edição.
 - **`st.fragment`** isola a Mesa de Atribuição de reruns da página inteira —
@@ -117,7 +117,7 @@ Texto Breve | Equipamento | Local de Instalação | Horas Programadas | Reprogra
   abas).
 - **Cache (`st.cache_data`)** na leitura de arquivo (por hash de bytes),
   nas transformações (`compute_hh_operacao`, `disponibilidade_longa`) e na
-  geração do Excel — sem isso, cada rerun reparseava a planilha inteira do
+  geração do Excel - sem isso, cada rerun reparseava a planilha inteira do
   zero (medido: ~2,45s para 30 mil linhas).
 - **Normalização de colunas** (NFC, remoção de BOM, espaços) necessária
   para lidar com inconsistências de export do SAP GUI.
