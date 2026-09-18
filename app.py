@@ -42,7 +42,7 @@ import plotly.express as px
 import streamlit as st
 
 st.set_page_config(
-    page_title="PCM | Programação Semanal",
+    page_title="PCM LDC G&O NLT | Programação Semanal",
     page_icon="🗓️",
     layout="wide",
 )
