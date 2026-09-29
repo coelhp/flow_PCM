@@ -1,4 +1,4 @@
-# Programação Semanal | PCM (SAP PM)
+# Programação Semanal | PCM (SAP PM) - Módulo de Manutenção do ERP
 
 App Streamlit para nivelamento de capacidade e atribuição semanal de
 manutentores a ordens de manutenção, a partir de duas exportações do SAP
