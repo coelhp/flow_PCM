@@ -6,35 +6,31 @@ App Streamlit para automação da PROGRAMAÇÃO SEMANAL de manutenção
 (nivelamento de capacidade por técnico/dia) a partir de dois arquivos
 carregados pelo PCM:
 
-    Base A - Disponibilidade (HH líquido por técnico/dia da semana)
-    Base B - IW37N (lista de OPERAÇÕES do SAP PM — uma ordem pode ter
-             várias operações, uma por linha)
+    Base A - Disponibilidade (HH líquido por técnico/dia da semana, com Turno)
+    Base B - IW37N (lista de OPERAÇÕES do SAP PM, com Plano)
 
 Fluxo do app:
-    1. Upload (ou colar) das duas bases -> validação de colunas.
-    2. Dashboard de capacidade (HH disponível x HH demandado).
-    3. Aba "Mesa de Programação":
-       3.1 Triagem — o PCM marca quais ORDENS entram no escopo da
-           semana; ao marcar uma Ordem, TODAS as suas Operações entram
-           junto automaticamente (agrupamento por Ordem).
-       3.2 Escopo Fechado — mostra só as Ordens/Operações selecionadas.
-       3.3 Mesa de Atribuição — aloca Colaborador x Operação x Dia x
-           Horas. Operações com Executantes > 1 podem receber vários
-           colaboradores distintos, cada um debitado a Duração Normal
-           cheia (não dividida) da sua disponibilidade individual.
-    4. Aba "Cronograma (Gantt)" — visão Plotly do nivelamento por
-       colaborador/dia.
-    5. Aba "Exportar" — layout fixo (.xlsx/.csv) para o Power BI.
+    0. Sidebar: upload/colar das bases, SEMANA de programação (selecionável,
+       sempre começa na segunda-feira; padrão = semana seguinte à atual) e
+       horários dos turnos A/B/C/ADM (digitados em HH:MM).
+    1. Aba "Mesa de Programação":
+       1.1 Triagem — marca as Ordens da semana e clica em "Carregar Ordens".
+       1.2 Escopo Fechado — referência das Operações das Ordens carregadas.
+       1.3 Mesa de Atribuição — Colaborador x Ordem x Dia x Horas, uma linha
+           por vaga de executante; "Aplicar Atribuições" grava; "Calcular
+           Saldo" mostra saldo/sobrecarga.
+    2. Aba "Cronograma (Gantt)" — botão "Gerar Cronograma".
+    3. Aba "Exportar" — botão "Gerar Arquivo de Programação" (.xlsx/.csv).
 
 Como rodar:
-    pip install -r requirements.txt
+    pip install streamlit pandas numpy openpyxl plotly
     streamlit run programacao_semanal.py
 """
 from __future__ import annotations
 
 import io
 import unicodedata
-from datetime import time, timedelta
+from datetime import date, time, timedelta
 
 import numpy as np
 import pandas as pd
@@ -42,7 +38,7 @@ import plotly.express as px
 import streamlit as st
 
 st.set_page_config(
-    page_title="PCM LDC G&O NLT | Programação Semanal",
+    page_title="PCM | Programação Semanal",
     page_icon="🗓️",
     layout="wide",
 )
@@ -71,8 +67,8 @@ COLS_DISPONIBILIDADE = [
     *COL_CH_POR_DIA.values(),
 ]
 
-# "Plano" incluída antes de "Operação"; "Operação" segue existindo no
-# relatório (referência), mas a alocação agora é feita por ORDEM inteira.
+# "Plano" antes de "Operação"; "Operação" segue como referência, mas a
+# alocação é feita pela ORDEM.
 COLS_IW37N = [
     "Ordem", "Plano", "Operação", "Tipo de Ordem", "Local de Instalação",
     "Denominação do loc. instalação", "Texto Breve", "Prioridade",
@@ -80,33 +76,31 @@ COLS_IW37N = [
     "Data-base fim", "Centro de Trabalho", "Status Usuário",
 ]
 
-# Layout de exportação — uma linha por Ordem x Colaborador (não mais por
-# Operação, já que a alocação passou a ser no nível da Ordem).
+# Layout de exportação — uma linha por Ordem x Colaborador.
 COLS_SAIDA = [
     "Colaborador", "Matrícula", "Dia_Semana", "Data_Programada", "Ordem",
     "Texto Breve", "Equipamento", "Local de Instalação",
     "Horas Programadas", "Reprogramada",
 ]
 
-# Turno NÃO é mais escolhido na Mesa de Atribuição — vem da Disponibilidade
+# Turno NÃO é escolhido na Mesa de Atribuição — vem da Disponibilidade
 # (um Turno por colaborador) e é usado só internamente para ancorar o Gantt.
 ALOCACOES_COLS = [
     "Centro Trabalho", "Colaborador", "Matrícula", "Ordem",
     "Dia_Semana", "Horas Programadas", "Reprogramada",
 ]
 
-# Turnos padrão (o usuário pode redefinir na sidebar)
+# Colunas de identificador lidas SEMPRE como texto — evita que o pandas
+# infira número e apague zeros à esquerda (ex.: Operação "0010" -> 10).
+ID_COLS_AS_TEXT = ["Ordem", "Operação", "Plano", "Matrícula", "Centro Trabalho", "Centro de Trabalho", "Turno"]
+
+# Turnos padrão (o usuário redefine na sidebar)
 TURNOS_PADRAO = {
     "A": (time(6, 0), time(14, 0)),
     "B": (time(14, 0), time(22, 0)),
     "C": (time(22, 0), time(6, 0)),
     "ADM": (time(7, 0), time(17, 0)),
 }
-
-# Colunas de identificador que devem ser lidas SEMPRE como texto — evita que
-# o pandas infira número e apague zeros à esquerda (ex.: Operação "0010"
-# virando 10, Matrícula "00123" virando 123).
-ID_COLS_AS_TEXT = ["Ordem", "Operação", "Plano", "Matrícula", "Centro Trabalho", "Centro de Trabalho", "Turno"]
 
 
 # =============================================================================
@@ -132,10 +126,8 @@ def _parse_tabular(file_bytes: bytes, filename: str, dtype_map: dict) -> pd.Data
     return pd.read_excel(buffer, dtype=dtype_map)
 
 
-# Cacheado pelo CONTEÚDO do arquivo (hash dos bytes) — a reexecução do script
-# a cada interação (ex.: escolher um nome numa célula) NÃO relê/reprocessa o
-# Excel se o arquivo não mudou. Sem isso, cada edição reprocessava um export
-# do SAP inteiro (potencialmente dezenas de milhares de linhas) do zero.
+# Cacheado pelo CONTEÚDO do arquivo: a reexecução do script a cada interação
+# não relê/reprocessa o Excel se o arquivo não mudou.
 _parse_tabular_cached = st.cache_data(show_spinner="Lendo arquivo...")(_parse_tabular)
 
 
@@ -144,16 +136,9 @@ def read_uploaded(file) -> pd.DataFrame:
     return _parse_tabular_cached(file.getvalue(), file.name, dtype_map)
 
 
-@st.cache_data(show_spinner=False)
-def _read_pasted_cached(text: str, dtype_map: dict) -> pd.DataFrame:
-    sep = "\t" if "\t" in text.splitlines()[0] else ";"
-    return pd.read_csv(io.StringIO(text), sep=sep, dtype=dtype_map)
-
-
 def _parse_hora(texto: str, default: time) -> tuple[time, bool]:
     """Converte texto 'HH:MM' digitado manualmente em datetime.time.
-    Devolve (horário, ok) — se o texto for inválido, cai no default e
-    ok=False (para exibirmos um aviso sem travar o app)."""
+    Devolve (horário, ok) — se inválido, cai no default e ok=False."""
     texto = (texto or "").strip()
     try:
         partes = texto.split(":")
@@ -166,6 +151,24 @@ def _parse_hora(texto: str, default: time) -> tuple[time, bool]:
         return time(hour=h, minute=m), True
     except (ValueError, IndexError):
         return default, False
+
+
+def semanas_disponiveis(hoje: date, passadas: int = 4, futuras: int = 12) -> list[date]:
+    """Segundas-feiras de (passadas) semanas atrás até (futuras) semanas à frente."""
+    segunda_atual = hoje - timedelta(days=hoje.weekday())
+    return [segunda_atual + timedelta(weeks=i) for i in range(-passadas, futuras + 1)]
+
+
+def rotulo_semana(segunda: date) -> str:
+    domingo = segunda + timedelta(days=6)
+    iso = segunda.isocalendar()
+    return f"Semana {iso.week:02d}/{iso.year} ({segunda:%d/%m} – {domingo:%d/%m/%Y})"
+
+
+@st.cache_data(show_spinner=False)
+def _read_pasted_cached(text: str, dtype_map: dict) -> pd.DataFrame:
+    sep = "\t" if "\t" in text.splitlines()[0] else ";"
+    return pd.read_csv(io.StringIO(text), sep=sep, dtype=dtype_map)
 
 
 def read_pasted(text: str) -> pd.DataFrame:
@@ -216,6 +219,7 @@ def compute_hh_operacao(iw37n: pd.DataFrame) -> pd.DataFrame:
     df["HH_Operacao"] = df["Duração Normal"] * df["Executantes (Nº de Pessoas)"]
     df["Ordem"] = df["Ordem"].astype(str)
     df["Operação"] = df["Operação"].astype(str)
+    # fillna ANTES do astype: .astype(str) não converte NaN em "nan" de forma confiável
     df["Plano"] = df["Plano"].fillna("").astype(str).str.strip()
     df["C/S Plano"] = np.where(df["Plano"].isin(["", "0", "0.0"]), "Sem Plano", "Com Plano")
     return df
@@ -255,12 +259,11 @@ def calcular_saldo(disp_longa: pd.DataFrame, alocacoes: pd.DataFrame) -> pd.Data
 
 
 def build_ordens_base(escopo_centro: pd.DataFrame) -> pd.DataFrame:
-    """Pré-lista uma linha por 'vaga de executante' de cada Ordem do
-    escopo. Se a Ordem exigir N executantes (maior valor de 'Executantes
-    (Nº de Pessoas)' entre suas Operações), ela aparece N vezes — uma para
-    cada executante ser atribuído. Horas Programadas já vem preenchida com
-    a soma da Duração Normal de todas as operações da Ordem (cada
-    executante é debitado o total cheio, pois trabalham em paralelo)."""
+    """Pré-lista uma linha por 'vaga de executante' de cada Ordem do escopo.
+    Se a Ordem exigir N executantes (maior valor de 'Executantes (Nº de
+    Pessoas)' entre suas Operações), ela aparece N vezes. Horas Programadas
+    já vem com a soma da Duração Normal das operações da Ordem (cada
+    executante é debitado o total cheio — trabalham em paralelo)."""
     agg = escopo_centro.groupby("Ordem", as_index=False).agg(
         Plano=("Plano", "first"),
         CS_Plano=("C/S Plano", "first"),
@@ -298,10 +301,8 @@ def build_ordens_base(escopo_centro: pd.DataFrame) -> pd.DataFrame:
 
 
 def reconciliar_ordens(ordens_base: pd.DataFrame, alocacoes_centro: pd.DataFrame) -> pd.DataFrame:
-    """Preenche as linhas pré-listadas (por vaga de executante da Ordem)
-    com o que já foi salvo anteriormente para este Centro de Trabalho,
-    casando por Ordem na ordem de lançamento — preserva o trabalho do
-    planejador ao trocar de Centro e voltar."""
+    """Preenche as linhas pré-listadas com o que já foi salvo para este
+    Centro de Trabalho, casando por Ordem na ordem de lançamento."""
     if alocacoes_centro.empty:
         return ordens_base
     ordens_base = ordens_base.copy()
@@ -325,10 +326,8 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
 
 
 def _fingerprint(df: pd.DataFrame) -> int:
-    """'Assinatura' leve do conteúdo de um DataFrame — usada para detectar
-    se st.session_state['alocacoes'] mudou desde o último clique em
-    Calcular Saldo / Gerar Cronograma / Gerar Arquivo, sem precisar
-    recalcular nada (só compara o fingerprint salvo com o atual)."""
+    """'Assinatura' leve do conteúdo de um DataFrame — detecta se a alocação
+    mudou desde o último clique em Aplicar/Calcular/Gerar, sem recalcular."""
     if df is None or df.empty:
         return 0
     return int(pd.util.hash_pandas_object(df, index=True).sum())
@@ -361,10 +360,8 @@ def build_backlog(iw37n: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def build_saida_interna(alocacoes: pd.DataFrame, iw37n: pd.DataFrame, semana_inicio, colaborador_turno_map: dict) -> pd.DataFrame:
-    """Como build_saida, mas mantém a coluna 'Turno' (uso interno — Gantt),
-    derivada do Colaborador via colaborador_turno_map (Turno vem da
-    Disponibilidade, não é mais escolhido na Mesa de Atribuição). O layout
-    de exportação oficial (COLS_SAIDA) não inclui Turno."""
+    """Como build_saida, mas mantém 'Turno' (uso interno — Gantt), derivado
+    do Colaborador via colaborador_turno_map (vem da Disponibilidade)."""
     if alocacoes.empty:
         return pd.DataFrame(columns=COLS_SAIDA + ["Turno"])
 
@@ -384,9 +381,7 @@ def build_saida_interna(alocacoes: pd.DataFrame, iw37n: pd.DataFrame, semana_ini
 
 
 def build_saida(alocacoes: pd.DataFrame, iw37n: pd.DataFrame, semana_inicio, colaborador_turno_map: dict) -> pd.DataFrame:
-    """Monta o DataFrame consolidado no layout FIXO de saída (sem Turno —
-    Turno é um detalhe operacional interno, não faz parte do layout
-    combinado de exportação)."""
+    """Layout FIXO de saída (sem Turno)."""
     interna = build_saida_interna(alocacoes, iw37n, semana_inicio, colaborador_turno_map)
     if interna.empty:
         return pd.DataFrame(columns=COLS_SAIDA)
@@ -395,9 +390,8 @@ def build_saida(alocacoes: pd.DataFrame, iw37n: pd.DataFrame, semana_inicio, col
 
 @st.cache_data(show_spinner=False)
 def build_gantt_df(saida_interna: pd.DataFrame, turnos_cfg: dict) -> pd.DataFrame:
-    """A partir do layout de saída (com Turno), monta Início/Fim
-    sequenciais por Colaborador x Dia x Turno (empilhando as Ordens a
-    partir do horário de início do turno) para o Gantt."""
+    """Monta Início/Fim sequenciais por Colaborador x Dia x Turno, a partir
+    do horário de início do turno do colaborador."""
     if saida_interna.empty:
         return saida_interna.assign(Início=pd.Series(dtype="datetime64[ns]"), Fim=pd.Series(dtype="datetime64[ns]"), Rótulo="")
 
@@ -428,12 +422,8 @@ def build_gantt_df(saida_interna: pd.DataFrame, turnos_cfg: dict) -> pd.DataFram
 
 @st.fragment
 def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> None:
-    """Mesa de Atribuição isolada como FRAGMENTO do Streamlit: editar uma
-    célula aqui dentro (Colaborador, Dia_Semana, Horas...) reexecuta SÓ
-    esta função — não a página inteira (sidebar, Triagem, abas Gantt/
-    Exportar). É isso que dá a agilidade pedida: sem isso, CADA edição
-    reexecutava o script do zero, e cliques rápidos em sequência podiam
-    ser perdidos/revertidos enquanto o rerun anterior ainda processava."""
+    """Mesa de Atribuição isolada como FRAGMENTO: editar uma célula aqui
+    reexecuta SÓ esta função, não a página inteira."""
     if escopo.empty:
         st.info("Nenhuma Ordem no escopo fechado ainda.")
         return
@@ -473,6 +463,7 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
         num_rows="fixed",
         use_container_width=True,
         key=f"editor_{centro_sel}",
+        # "Matrícula" fora do column_order -> não é exibida nem editada aqui
         column_order=["Ordem", "Plano", "C/S Plano", "Texto Breve", "Qtd. Operações", "Executante",
                        "Colaborador", "Dia_Semana", "Horas Programadas", "Reprogramada"],
         column_config={
@@ -497,12 +488,9 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
         },
     )
 
-    # IMPORTANTE: NÃO realimentamos `edited` de volta como `data` do editor a cada
-    # rerun (isso é o que fazia o Streamlit achar que "os dados mudaram por fora" e
-    # resetar o rastreamento de edições — perdendo a próxima ação em sequência). A
-    # base passada ao editor (`st.session_state[editor_state_key]`) só é atualizada
-    # no clique do botão abaixo — o widget acumula sozinho, internamente, qualquer
-    # quantidade de edições feitas entre um clique e outro.
+    # IMPORTANTE: NÃO realimentamos `edited` como `data` do editor a cada rerun
+    # (antipadrão que faz o Streamlit resetar as edições em andamento). A base só
+    # é atualizada no clique do botão abaixo.
     aplicar_click = st.button("💾 Aplicar Atribuições", key=f"btn_aplicar_{centro_sel}")
 
     if aplicar_click:
@@ -581,12 +569,12 @@ if "ordens_selecionadas" not in st.session_state:
 
 
 # =============================================================================
-# UI — Upload e validação
+# UI — Sidebar, upload e validação
 # =============================================================================
 
 st.title("🗓️ Programação Semanal de Manutenção (PCM)")
 st.caption(
-    "Nivelamento de capacidade por técnico e atribuição diária de operações (SAP PM / IW37N), "
+    "Nivelamento de capacidade por técnico e atribuição de Ordens (SAP PM / IW37N), "
     "com exportação consolidada para o Power BI."
 )
 
@@ -598,9 +586,16 @@ with st.sidebar:
         iw37n_raw = load_base("IW37N", "iw37n")
 
     st.divider()
-    semana_inicio = st.date_input(
-        "Segunda-feira da semana de programação",
-        help="Usada para calcular a Data_Programada de cada dia da semana no arquivo final e no Gantt.",
+    hoje = date.today()
+    semanas = semanas_disponiveis(hoje)
+    proxima_semana = hoje - timedelta(days=hoje.weekday()) + timedelta(weeks=1)
+    semana_inicio = st.selectbox(
+        "Semana de programação",
+        options=semanas,
+        index=semanas.index(proxima_semana),
+        format_func=rotulo_semana,
+        key="semana_programacao",
+        help="A semana sempre começa na segunda-feira. Por padrão vem a semana seguinte à atual.",
     )
 
     st.divider()
@@ -657,7 +652,7 @@ tab_mesa, tab_gantt, tab_export = st.tabs(["🧰 Mesa de Programação", "📅 C
 with tab_mesa:
 
     # -------------------------------------------------------------------
-    # 1) TRIAGEM — seleção de Ordens (agrupa automaticamente as Operações)
+    # 1) TRIAGEM — seleção de Ordens
     # -------------------------------------------------------------------
     st.subheader("1️⃣ Triagem — selecione as Ordens que entram na semana")
     st.caption(
@@ -688,7 +683,7 @@ with tab_mesa:
             backlog_editado.loc[backlog_editado["Incluir na Semana"], "Ordem"]
         )
         # Força reconstrução das mesas de atribuição (por centro) com o novo escopo,
-        # sem perder as alocações já feitas (que continuam em st.session_state["alocacoes"]).
+        # sem perder as alocações já feitas (continuam em st.session_state["alocacoes"]).
         for k in list(st.session_state.keys()):
             if k.startswith("ordens_editor_data_"):
                 del st.session_state[k]
@@ -710,7 +705,7 @@ with tab_mesa:
     if escopo.empty:
         st.info("Nenhuma Ordem selecionada na Triagem acima ainda.")
     else:
-        st.caption("Referência — detalhe das Operações de cada Ordem selecionada (a alocação abaixo é feita por Ordem inteira).")
+        st.caption("Referência — detalhe das Operações de cada Ordem selecionada (a alocação abaixo é feita por Ordem).")
         st.dataframe(
             escopo[["Ordem", "Plano", "C/S Plano", "Operação", "Tipo de Ordem", "Texto Breve", "Prioridade",
                      "Duração Normal", "Executantes (Nº de Pessoas)", "HH_Operacao",
