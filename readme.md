@@ -63,7 +63,7 @@ novo escopo.
 
 ### 2.2 Mesa de Atribuição
 
-- Isolada com `@st.fragment` — editar uma célula reexecuta só esta função,
+- Isolada com `@st.fragment`, editar uma célula reexecuta só esta função,
   não a página inteira (sidebar, Triagem, outras abas).
 - Uma linha por **vaga de executante** da Ordem: se `max(Executantes)` entre
   as operações da ordem for 2, a ordem aparece 2 vezes.
@@ -98,7 +98,7 @@ Texto Breve | Equipamento | Local de Instalação | Horas Programadas | Reprogra
 - Upload (ou colar) das duas bases.
 - Data de referência ("hoje" para cálculo de dias).
 - Segunda-feira da semana de programação (base para `Data_Programada`).
-- Horários dos turnos **A, B, C, ADM** - início/fim digitados manualmente em
+- Horários dos turnos **A, B, C, ADM**, início/fim digitados manualmente em
   texto (`HH:MM`), não seletor; formato inválido cai no padrão com aviso.
 
 ---
@@ -117,7 +117,7 @@ Texto Breve | Equipamento | Local de Instalação | Horas Programadas | Reprogra
   abas).
 - **Cache (`st.cache_data`)** na leitura de arquivo (por hash de bytes),
   nas transformações (`compute_hh_operacao`, `disponibilidade_longa`) e na
-  geração do Excel - sem isso, cada rerun reparseava a planilha inteira do
+  geração do Excel, sem isso, cada rerun reparseava a planilha inteira do
   zero (medido: ~2,45s para 30 mil linhas).
 - **Normalização de colunas** (NFC, remoção de BOM, espaços) necessária
   para lidar com inconsistências de export do SAP GUI.
