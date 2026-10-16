@@ -14,9 +14,9 @@ Arquivo principal: `programacao_semanal.py` · `streamlit run programacao_semana
 
 | Coluna | Observação |
 |---|---|
-| `Centro Trabalho` | mesmo texto usado em `Centro de Trabalho` do IW37N |
-| `Colaborador` | nome do manutentor |
-| `Matrícula` | tratada como texto (evita perder zeros à esquerda) |
+| `Centro Trabalho` | Mesmo texto usado em `Centro de Trabalho` do IW37N |
+| `Colaborador` | Nome do manutentor |
+| `Matrícula` | Tratada como texto (evita perder zeros à esquerda) |
 | `Turno` | **A / B / C / ADM** - turno fixo do colaborador; usado para ancorar o Gantt |
 | `C.H Segunda`, `C.H Terça`, `C.H. Quarta`, `C.H. Quinta`, `C.H Sexta`, `C.H Sábado`, `C.H Domingo` | HH disponível por dia (0 nos dias sem escala) |
 
