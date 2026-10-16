@@ -24,16 +24,16 @@ Arquivo principal: `programacao_semanal.py` · `streamlit run programacao_semana
 
 | Coluna | Observação |
 |---|---|
-| `Ordem` | chave da ordem de manutenção |
-| `Plano` | código do Plano de Manutenção, se houver - em branco/0 = corretiva avulsa. Gera automaticamente `C/S Plano` ("Com Plano"/"Sem Plano") |
-| `Operação` | número da operação dentro da ordem (ex. `0010`) — mantida como referência; a alocação é feita pela **Ordem**, não por operação |
-| `Tipo de Ordem`, `Local de Instalação`, `Denominação do loc. instalação`, `Texto Breve`, `Prioridade` | descritivos |
-| `Duração Normal` | horas da operação - somada por Ordem para sugerir "Horas Programadas" |
-| `Executantes (Nº de Pessoas)` | usa-se o **maior** valor entre as operações da ordem para saber quantas vagas de executante gerar |
-| `Data de entrada`, `Data-base fim`, `Centro de Trabalho`, `Status Usuário` | descritivos/filtros |
+| `Ordem` | Chave da ordem de manutenção |
+| `Plano` | Código do Plano de Manutenção, se houver - em branco/0 = corretiva avulsa. Gera automaticamente `C/S Plano` ("Com Plano"/"Sem Plano") |
+| `Operação` | Número da operação dentro da ordem (ex. `0010`) — mantida como referência; a alocação é feita pela **Ordem**, não por operação |
+| `Tipo de Ordem`, `Local de Instalação`, `Denominação do loc. instalação`, `Texto Breve`, `Prioridade` | Descritivos |
+| `Duração Normal` | Horas da operação - somada por Ordem para sugerir "Horas Programadas" |
+| `Executantes (Nº de Pessoas)` | Usa-se o **maior** valor entre as operações da ordem para saber quantas vagas de executante gerar |
+| `Data de entrada`, `Data-base fim`, `Centro de Trabalho`, `Status Usuário` | Descritivos/filtros |
 
 Colunas de identificador (`Ordem`, `Operação`, `Plano`, `Matrícula`, `Centro
-Trabalho`/`Centro de Trabalho`, `Turno`) são sempre lidas como texto — o
+Trabalho`/`Centro de Trabalho`, `Turno`) são sempre lidas como texto - o
 pandas, por padrão, apagaria zeros à esquerda (ex. `"0010"` → `10`).
 
 ---
