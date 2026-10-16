@@ -25,10 +25,10 @@ Arquivo principal: `programacao_semanal.py` · `streamlit run programacao_semana
 | Coluna | Observação |
 |---|---|
 | `Ordem` | Chave da ordem de manutenção |
-| `Plano` | Código do Plano de Manutenção, se houver - em branco/0 = corretiva avulsa. Gera automaticamente `C/S Plano` ("Com Plano"/"Sem Plano") |
-| `Operação` | Número da operação dentro da ordem (ex. `0010`) — mantida como referência; a alocação é feita pela **Ordem**, não por operação |
+| `Plano` | Código do Plano de Manutenção, se houver, em branco/0 = corretiva avulsa. Gera automaticamente `C/S Plano` ("Com Plano"/"Sem Plano") |
+| `Operação` | Número da operação dentro da ordem (ex. `0010`), mantida como referência; a alocação é feita pela **Ordem**, não por operação |
 | `Tipo de Ordem`, `Local de Instalação`, `Denominação do loc. instalação`, `Texto Breve`, `Prioridade` | Descritivos |
-| `Duração Normal` | Horas da operação - somada por Ordem para sugerir "Horas Programadas" |
+| `Duração Normal` | Horas da operação, somada por Ordem para sugerir "Horas Programadas" |
 | `Executantes (Nº de Pessoas)` | Usa-se o **maior** valor entre as operações da ordem para saber quantas vagas de executante gerar |
 | `Data de entrada`, `Data-base fim`, `Centro de Trabalho`, `Status Usuário` | Descritivos/filtros |
 
@@ -68,17 +68,17 @@ novo escopo.
 - Uma linha por **vaga de executante** da Ordem: se `max(Executantes)` entre
   as operações da ordem for 2, a ordem aparece 2 vezes.
 - `Horas Programadas` vem pré-preenchida com a soma da `Duração Normal` das
-  operações da ordem — cada executante é debitado o total cheio (trabalho em
+  operações da ordem, cada executante é debitado o total cheio (trabalho em
   paralelo, não dividido).
-- `Matrícula` é **oculta** da tabela (via `column_order`) — calculada nos
+- `Matrícula` é **oculta** da tabela (via `column_order`), calculada nos
   bastidores a partir do Colaborador escolhido, só no clique de Aplicar.
-- `Turno` **não é escolhido aqui** — vem da Disponibilidade do colaborador.
+- `Turno` **não é escolhido aqui**, vem da Disponibilidade do colaborador.
 
 ### 2.3 Cronograma (Gantt)
 
 `plotly.express.timeline`, eixo Y = Colaborador, cor = Turno. O horário de
 início de cada bloco é ancorado no horário de início do Turno do
-colaborador (definido manualmente na sidebar, formato `HH:MM` — texto livre,
+colaborador (definido manualmente na sidebar, formato `HH:MM`, texto livre,
 não seletor), empilhando sequencialmente quando há mais de uma ordem no
 mesmo dia/turno.
 
@@ -108,10 +108,10 @@ Texto Breve | Equipamento | Local de Instalação | Horas Programadas | Reprogra
 - **Antipadrão de perda de edição (`st.data_editor`):** reescrever o
   resultado editado de volta como `data` do próprio editor a cada rerun faz
   o Streamlit achar que "os dados mudaram por fora" e resetar o
-  rastreamento de edições em andamento - perdendo a próxima ação em
+  rastreamento de edições em andamento, perdendo a próxima ação em
   sequência. Correção: a base do editor só é escrita na criação e no clique
   do botão de aplicar; nunca a cada edição.
-- **`st.fragment`** isola a Mesa de Atribuição de reruns da página inteira —
+- **`st.fragment`** isola a Mesa de Atribuição de reruns da página inteira
   essencial depois que Saldo/Gantt/Exportar já eram sob demanda (sem esse
   isolamento, cada edição ainda reprocessava sidebar, Triagem e outras
   abas).
@@ -124,7 +124,7 @@ Texto Breve | Equipamento | Local de Instalação | Horas Programadas | Reprogra
 - **`pd.read_excel(..., dtype=str)`** por coluna evita perda de zeros à
   esquerda em `Ordem`/`Operação`/`Plano`/`Matrícula`.
 - **`.astype(str)` não converte `NaN` em `"nan"`** de forma confiável nesta
-  versão do pandas quando a coluna é mista — usar `.fillna("").astype(str)`.
+  versão do pandas quando a coluna é mista usar `.fillna("").astype(str)`.
 
 ---
 
