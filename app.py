@@ -14,13 +14,13 @@ Fluxo do app:
        sempre começa na segunda-feira; padrão = semana seguinte à atual) e
        horários dos turnos A/B/C/ADM (digitados em HH:MM).
     1. Aba "Mesa de Programação":
-       1.1 Triagem — marca as Ordens da semana e clica em "Carregar Ordens".
-       1.2 Escopo Fechado — referência das Operações das Ordens carregadas.
-       1.3 Mesa de Atribuição — Colaborador x Ordem x Dia x Horas, uma linha
+       1.1 Triagem: marca as Ordens da semana e clica em "Carregar Ordens".
+       1.2 Escopo Fechado: referência das Operações das Ordens carregadas.
+       1.3 Mesa de Atribuição: Colaborador x Ordem x Dia x Horas, uma linha
            por vaga de executante; "Aplicar Atribuições" grava; "Calcular
            Saldo" mostra saldo/sobrecarga.
-    2. Aba "Cronograma (Gantt)" — botão "Gerar Cronograma".
-    3. Aba "Exportar" — botão "Gerar Arquivo de Programação" (.xlsx/.csv).
+    2. Aba "Cronograma (Gantt)": botão "Gerar Cronograma".
+    3. Aba "Exportar": botão "Gerar Arquivo de Programação" (.xlsx/.csv).
 
 Como rodar:
     pip install streamlit pandas numpy openpyxl plotly
@@ -44,14 +44,14 @@ st.set_page_config(
 )
 
 # =============================================================================
-# 0) CONSTANTES — layout das bases de entrada e da saída
+# 0) CONSTANTES: layout das bases de entrada e da saída
 # =============================================================================
 
 DIAS_SEMANA = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"]
 
 # Mapeia cada dia da semana -> nome exato da coluna de C.H. na Base A
 # (mantido fiel ao layout informado, incluindo a inconsistência de
-# pontuação entre os dias — "C.H Segunda" vs "C.H. Quarta")
+# pontuação entre os dias: "C.H Segunda" vs "C.H. Quarta")
 COL_CH_POR_DIA = {
     "Segunda": "C.H Segunda",
     "Terça": "C.H Terça",
@@ -76,29 +76,29 @@ COLS_IW37N = [
     "Data-base fim", "Centro de Trabalho", "Status Usuário",
 ]
 
-# Layout de exportação — uma linha por Ordem x Colaborador.
+# Layout de exportação: uma linha por Ordem x Colaborador.
 COLS_SAIDA = [
     "Colaborador", "Matrícula", "Dia_Semana", "Data_Programada", "Ordem",
     "Texto Breve", "Equipamento", "Local de Instalação",
     "Horas Programadas", "Reprogramada",
 ]
 
-# Turno NÃO é escolhido na Mesa de Atribuição — vem da Disponibilidade
+# Turno NÃO é escolhido na Mesa de Atribuição: vem da Disponibilidade
 # (um Turno por colaborador) e é usado só internamente para ancorar o Gantt.
 ALOCACOES_COLS = [
     "Centro Trabalho", "Colaborador", "Matrícula", "Ordem",
     "Dia_Semana", "Horas Programadas", "Reprogramada",
 ]
 
-# Colunas de identificador lidas SEMPRE como texto — evita que o pandas
+# Colunas de identificador lidas SEMPRE como texto: evita que o pandas
 # infira número e apague zeros à esquerda (ex.: Operação "0010" -> 10).
 ID_COLS_AS_TEXT = ["Ordem", "Operação", "Plano", "Matrícula", "Centro Trabalho", "Centro de Trabalho", "Turno"]
 
 # Turnos padrão (o usuário redefine na sidebar)
 TURNOS_PADRAO = {
-    "A": (time(6, 0), time(14, 0)),
-    "B": (time(14, 0), time(22, 0)),
-    "C": (time(22, 0), time(6, 0)),
+    "A": (time(7, 0), time(15, 20)),
+    "B": (time(15, 20), time(23, 28)),
+    "C": (time(23, 28), time(7, 0)),
     "ADM": (time(7, 0), time(17, 0)),
 }
 
@@ -138,7 +138,7 @@ def read_uploaded(file) -> pd.DataFrame:
 
 def _parse_hora(texto: str, default: time) -> tuple[time, bool]:
     """Converte texto 'HH:MM' digitado manualmente em datetime.time.
-    Devolve (horário, ok) — se inválido, cai no default e ok=False."""
+    Devolve (horário, ok): se inválido, cai no default e ok=False."""
     texto = (texto or "").strip()
     try:
         partes = texto.split(":")
@@ -172,14 +172,14 @@ def _read_pasted_cached(text: str, dtype_map: dict) -> pd.DataFrame:
 
 
 def read_pasted(text: str) -> pd.DataFrame:
-    """Lê dados colados (Excel copia como TSV — separado por tabulação)."""
+    """Lê dados colados (Excel copia como TSV: separado por tabulação)."""
     dtype_map = {c: str for c in ID_COLS_AS_TEXT}
     return _read_pasted_cached(text, dtype_map)
 
 
 def load_base(label: str, key_prefix: str) -> pd.DataFrame | None:
     modo = st.radio(
-        f"{label} — forma de entrada", ["Upload de arquivo", "Colar dados"],
+        f"{label}: forma de entrada", ["Upload de arquivo", "Colar dados"],
         horizontal=True, key=f"{key_prefix}_modo",
     )
     df = None
@@ -208,7 +208,7 @@ def validate_columns(df: pd.DataFrame, required: list[str], label: str) -> bool:
 
 
 # =============================================================================
-# 2) PROCESSAMENTO — HH demandado, disponibilidade longa, saldo, backlog
+# 2) PROCESSAMENTO: HH demandado, disponibilidade longa, saldo, backlog
 # =============================================================================
 
 @st.cache_data(show_spinner="Calculando HH das operações...")
@@ -263,7 +263,7 @@ def build_ordens_base(escopo_centro: pd.DataFrame) -> pd.DataFrame:
     Se a Ordem exigir N executantes (maior valor de 'Executantes (Nº de
     Pessoas)' entre suas Operações), ela aparece N vezes. Horas Programadas
     já vem com a soma da Duração Normal das operações da Ordem (cada
-    executante é debitado o total cheio — trabalham em paralelo)."""
+    executante é debitado o total cheio: trabalham em paralelo)."""
     agg = escopo_centro.groupby("Ordem", as_index=False).agg(
         Plano=("Plano", "first"),
         CS_Plano=("C/S Plano", "first"),
@@ -326,7 +326,7 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
 
 
 def _fingerprint(df: pd.DataFrame) -> int:
-    """'Assinatura' leve do conteúdo de um DataFrame — detecta se a alocação
+    """'Assinatura' leve do conteúdo de um DataFrame: detecta se a alocação
     mudou desde o último clique em Aplicar/Calcular/Gerar, sem recalcular."""
     if df is None or df.empty:
         return 0
@@ -334,7 +334,7 @@ def _fingerprint(df: pd.DataFrame) -> int:
 
 
 def build_backlog(iw37n: pd.DataFrame) -> pd.DataFrame:
-    """Agrega as operações por ORDEM — base da tela de triagem."""
+    """Agrega as operações por ORDEM: base da tela de triagem."""
     agg = iw37n.groupby("Ordem", as_index=False).agg(
         Centro_de_Trabalho=("Centro de Trabalho", "first"),
         Tipo_de_Ordem=("Tipo de Ordem", "first"),
@@ -360,7 +360,7 @@ def build_backlog(iw37n: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def build_saida_interna(alocacoes: pd.DataFrame, iw37n: pd.DataFrame, semana_inicio, colaborador_turno_map: dict) -> pd.DataFrame:
-    """Como build_saida, mas mantém 'Turno' (uso interno — Gantt), derivado
+    """Como build_saida, mas mantém 'Turno' (uso interno: Gantt), derivado
     do Colaborador via colaborador_turno_map (vem da Disponibilidade)."""
     if alocacoes.empty:
         return pd.DataFrame(columns=COLS_SAIDA + ["Turno"])
@@ -372,7 +372,7 @@ def build_saida_interna(alocacoes: pd.DataFrame, iw37n: pd.DataFrame, semana_ini
     )
     df["Turno"] = df["Colaborador"].map(colaborador_turno_map).fillna("A")
 
-    # Ordem pode ter várias Operações — usa a 1ª como referência p/ Texto/Equipamento/Local
+    # Ordem pode ter várias Operações: usa a 1ª como referência p/ Texto/Equipamento/Local
     ref = iw37n[["Ordem", "Texto Breve", "Denominação do loc. instalação", "Local de Instalação"]].drop_duplicates("Ordem")
     ref = ref.rename(columns={"Denominação do loc. instalação": "Equipamento"})
 
@@ -442,10 +442,10 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
         st.warning("Nenhuma Operação do escopo fechado pertence a este Centro de Trabalho.")
 
     st.write(
-        "**Aloque as Ordens** — cada vaga de executante já aparece listada abaixo com as Horas "
+        "**Aloque as Ordens**: cada vaga de executante já aparece listada abaixo com as Horas "
         "Programadas pré-preenchidas (soma da Duração Normal de todas as Operações da Ordem); "
         "selecione o **Colaborador** em quantas linhas quiser e só então clique em **Aplicar "
-        "Atribuições** (o Turno é o cadastrado na Disponibilidade dele — ajuste Dia/Horas se "
+        "Atribuições** (o Turno é o cadastrado na Disponibilidade dele: ajuste Dia/Horas se "
         "necessário). Se a Ordem exigir 2 executantes, ela aparece 2 vezes."
     )
 
@@ -477,12 +477,12 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
             ),
             "Colaborador": st.column_config.SelectboxColumn(
                 "Colaborador", options=[""] + tecnicos_centro["Colaborador"].tolist(),
-                help="Único campo obrigatório — selecione quem vai executar esta vaga.",
+                help="Único campo obrigatório: selecione quem vai executar esta vaga.",
             ),
             "Dia_Semana": st.column_config.SelectboxColumn("Dia_Semana", options=DIAS_SEMANA),
             "Horas Programadas": st.column_config.NumberColumn(
                 "Horas Programadas", min_value=0.0, step=0.5,
-                help="Pré-preenchida com a soma da Duração Normal das Operações da Ordem — ajuste se necessário.",
+                help="Pré-preenchida com a soma da Duração Normal das Operações da Ordem: ajuste se necessário.",
             ),
             "Reprogramada": st.column_config.CheckboxColumn("Reprogramada", default=False),
         },
@@ -513,7 +513,7 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
     fp_editor_atual = _fingerprint(edited)
     if st.session_state.get(f"aplicado_fp_{centro_sel}") != fp_editor_atual:
         st.caption(
-            "⚠️ Há edições ainda não aplicadas nesta tabela — clique em **Aplicar Atribuições** "
+            "⚠️ Há edições ainda não aplicadas nesta tabela: clique em **Aplicar Atribuições** "
             "para salvá-las (elas só entram no Saldo/Cronograma/Exportação depois disso)."
         )
 
@@ -529,7 +529,7 @@ def render_mesa_atribuicao(escopo: pd.DataFrame, disp_longa: pd.DataFrame) -> No
     if "saldo_resultado" in st.session_state:
         fp_atual = _fingerprint(st.session_state["alocacoes"])
         if st.session_state.get("saldo_fp") != fp_atual:
-            st.caption("⚠️ A alocação mudou desde o último cálculo — clique em **Calcular Saldo** para atualizar.")
+            st.caption("⚠️ A alocação mudou desde o último cálculo: clique em **Calcular Saldo** para atualizar.")
 
         saldo_centro = st.session_state["saldo_resultado"]
         saldo_centro = saldo_centro[saldo_centro["Centro Trabalho"] == centro_sel]
@@ -569,7 +569,7 @@ if "ordens_selecionadas" not in st.session_state:
 
 
 # =============================================================================
-# UI — Sidebar, upload e validação
+# UI: Sidebar, upload e validação
 # =============================================================================
 
 st.title("🗓️ Programação Semanal de Manutenção (PCM)")
@@ -580,9 +580,9 @@ st.caption(
 
 with st.sidebar:
     st.header("📥 Bases de entrada")
-    with st.expander("Base A — Disponibilidade", expanded=True):
+    with st.expander("Base A: Disponibilidade", expanded=True):
         disp_raw = load_base("Disponibilidade", "disp")
-    with st.expander("Base B — IW37N (Operações)", expanded=True):
+    with st.expander("Base B: IW37N (Operações)", expanded=True):
         iw37n_raw = load_base("IW37N", "iw37n")
 
     st.divider()
@@ -600,23 +600,23 @@ with st.sidebar:
 
     st.divider()
     st.header("🕐 Turnos")
-    st.caption("Digite os horários manualmente (formato HH:MM) — usados para ancorar o início dos blocos no Cronograma (Gantt).")
+    st.caption("Digite os horários manualmente (formato HH:MM): usados para ancorar o início dos blocos no Cronograma (Gantt).")
     turnos_cfg: dict[str, tuple] = {}
     for turno in ["A", "B", "C", "ADM"]:
         default_ini, default_fim = TURNOS_PADRAO[turno]
         col_ini, col_fim = st.columns(2)
-        txt_ini = col_ini.text_input(f"Turno {turno} — Início", value=default_ini.strftime("%H:%M"), key=f"turno_{turno}_ini_txt")
-        txt_fim = col_fim.text_input(f"Turno {turno} — Fim", value=default_fim.strftime("%H:%M"), key=f"turno_{turno}_fim_txt")
+        txt_ini = col_ini.text_input(f"Turno {turno}: Início", value=default_ini.strftime("%H:%M"), key=f"turno_{turno}_ini_txt")
+        txt_fim = col_fim.text_input(f"Turno {turno}: Fim", value=default_fim.strftime("%H:%M"), key=f"turno_{turno}_fim_txt")
         ini, ini_ok = _parse_hora(txt_ini, default_ini)
         fim, fim_ok = _parse_hora(txt_fim, default_fim)
         if not ini_ok:
-            col_ini.caption("⚠️ HH:MM inválido — usando padrão")
+            col_ini.caption("⚠️ HH:MM inválido: usando padrão")
         if not fim_ok:
-            col_fim.caption("⚠️ HH:MM inválido — usando padrão")
+            col_fim.caption("⚠️ HH:MM inválido: usando padrão")
         turnos_cfg[turno] = (ini, fim)
 
 if disp_raw is None or iw37n_raw is None:
-    st.info("👈 Envie (ou cole) as duas bases na barra lateral — Disponibilidade e IW37N — para começar.")
+    st.info("👈 Envie (ou cole) as duas bases na barra lateral: Disponibilidade e IW37N: para começar.")
     st.stop()
 
 disp_ok = validate_columns(disp_raw, COLS_DISPONIBILIDADE, "Disponibilidade")
@@ -629,7 +629,7 @@ disp_longa = disponibilidade_longa(disp_raw)
 colaborador_turno_map = disp_longa.drop_duplicates("Colaborador").set_index("Colaborador")["Turno"].to_dict()
 
 # =============================================================================
-# UI — Dashboard de capacidade
+# UI: Dashboard de capacidade
 # =============================================================================
 
 hh_disponivel = disp_longa["Saldo Inicial"].sum()
@@ -647,17 +647,17 @@ st.divider()
 tab_mesa, tab_gantt, tab_export = st.tabs(["🧰 Mesa de Programação", "📅 Cronograma (Gantt)", "📤 Exportar"])
 
 # =============================================================================
-# ABA 1 — Mesa de Programação (Triagem -> Escopo Fechado -> Atribuição)
+# ABA 1: Mesa de Programação (Triagem -> Escopo Fechado -> Atribuição)
 # =============================================================================
 with tab_mesa:
 
     # -------------------------------------------------------------------
-    # 1) TRIAGEM — seleção de Ordens
+    # 1) TRIAGEM: seleção de Ordens
     # -------------------------------------------------------------------
-    st.subheader("1️⃣ Triagem — selecione as Ordens que entram na semana")
+    st.subheader("1️⃣ Triagem: selecione as Ordens que entram na semana")
     st.caption(
         "Marque as Ordens abaixo e clique em **Carregar Ordens** para trazê-las (com todas as "
-        "suas Operações) para o escopo fechado. Nada é aplicado automaticamente ao marcar — assim "
+        "suas Operações) para o escopo fechado. Nada é aplicado automaticamente ao marcar: assim "
         "você pode marcar várias Ordens seguidas sem perder cliques."
     )
 
@@ -691,12 +691,12 @@ with tab_mesa:
 
     selecao_atual = set(backlog_editado.loc[backlog_editado["Incluir na Semana"], "Ordem"])
     if selecao_atual != st.session_state["ordens_selecionadas"]:
-        st.caption("⚠️ Há marcações não carregadas — clique em **Carregar Ordens** para aplicá-las.")
+        st.caption("⚠️ Há marcações não carregadas: clique em **Carregar Ordens** para aplicá-las.")
 
     st.divider()
 
     # -------------------------------------------------------------------
-    # 2) ESCOPO FECHADO — só Ordens/Operações selecionadas
+    # 2) ESCOPO FECHADO: só Ordens/Operações selecionadas
     # -------------------------------------------------------------------
     st.subheader("2️⃣ Escopo Fechado da Semana")
 
@@ -705,7 +705,7 @@ with tab_mesa:
     if escopo.empty:
         st.info("Nenhuma Ordem selecionada na Triagem acima ainda.")
     else:
-        st.caption("Referência — detalhe das Operações de cada Ordem selecionada (a alocação abaixo é feita por Ordem).")
+        st.caption("Referência: detalhe das Operações de cada Ordem selecionada (a alocação abaixo é feita por Ordem).")
         st.dataframe(
             escopo[["Ordem", "Plano", "C/S Plano", "Operação", "Tipo de Ordem", "Texto Breve", "Prioridade",
                      "Duração Normal", "Executantes (Nº de Pessoas)", "HH_Operacao",
@@ -716,16 +716,16 @@ with tab_mesa:
     st.divider()
 
     # -------------------------------------------------------------------
-    # 3) MESA DE ATRIBUIÇÃO — Colaborador x Ordem x Dia x Horas
+    # 3) MESA DE ATRIBUIÇÃO: Colaborador x Ordem x Dia x Horas
     # -------------------------------------------------------------------
     st.subheader("3️⃣ Mesa de Atribuição")
     render_mesa_atribuicao(escopo, disp_longa)
 
 # =============================================================================
-# ABA 2 — Cronograma (Gantt)
+# ABA 2: Cronograma (Gantt)
 # =============================================================================
 with tab_gantt:
-    st.subheader("📅 Cronograma de Alocação — Colaborador x Dia x Turno")
+    st.subheader("📅 Cronograma de Alocação: Colaborador x Dia x Turno")
 
     gerar_gantt_click = st.button("📅 Gerar Cronograma", key="btn_gerar_gantt")
 
@@ -736,7 +736,7 @@ with tab_gantt:
     if "gantt_saida_interna" in st.session_state and not st.session_state["gantt_saida_interna"].empty:
         fp_atual = _fingerprint(st.session_state["alocacoes"])
         if st.session_state.get("gantt_fp") != fp_atual:
-            st.caption("⚠️ A alocação mudou desde a última geração — clique em **Gerar Cronograma** para atualizar.")
+            st.caption("⚠️ A alocação mudou desde a última geração: clique em **Gerar Cronograma** para atualizar.")
 
         gantt_df = build_gantt_df(st.session_state["gantt_saida_interna"], turnos_cfg)
         fig = px.timeline(
@@ -744,7 +744,7 @@ with tab_gantt:
             x_start="Início", x_end="Fim", y="Colaborador",
             color="Turno", text="Rótulo",
             hover_data=["Texto Breve", "Horas Programadas", "Reprogramada", "Dia_Semana"],
-            title="Nivelamento de Carga — Semana de " + pd.Timestamp(semana_inicio).strftime("%d/%m/%Y"),
+            title="Nivelamento de Carga: Semana de " + pd.Timestamp(semana_inicio).strftime("%d/%m/%Y"),
         )
         fig.update_yaxes(autorange="reversed")
         fig.update_traces(textposition="inside")
@@ -754,7 +754,7 @@ with tab_gantt:
         st.info("Clique em **Gerar Cronograma** para visualizar o nivelamento de carga (Colaborador x Dia x Turno).")
 
 # =============================================================================
-# ABA 3 — Exportar
+# ABA 3: Exportar
 # =============================================================================
 with tab_export:
     st.subheader("📤 Exportar programação consolidada")
@@ -768,7 +768,7 @@ with tab_export:
     if "saida_final" in st.session_state and not st.session_state["saida_final"].empty:
         fp_atual = _fingerprint(st.session_state["alocacoes"])
         if st.session_state.get("export_fp") != fp_atual:
-            st.caption("⚠️ A alocação mudou desde a última geração — clique em **Gerar Arquivo de Programação** para atualizar.")
+            st.caption("⚠️ A alocação mudou desde a última geração: clique em **Gerar Arquivo de Programação** para atualizar.")
 
         saida = st.session_state["saida_final"]
         st.dataframe(saida, use_container_width=True, height=300)
