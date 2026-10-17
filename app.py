@@ -94,6 +94,10 @@ ALOCACOES_COLS = [
 # infira número e apague zeros à esquerda (ex.: Operação "0010" -> 10).
 ID_COLS_AS_TEXT = ["Ordem", "Operação", "Plano", "Matrícula", "Centro Trabalho", "Centro de Trabalho", "Turno"]
 
+# Janela do seletor de semana (a partir da semana atual)
+SEMANAS_PASSADAS = 104   # ~2 anos para trás, ...       
+SEMANAS_FUTURAS = 26     # ~6 meses à frente            
+
 # Turnos padrão (o usuário redefine na sidebar)
 TURNOS_PADRAO = {
     "A": (time(7, 0), time(15, 20)),
