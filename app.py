@@ -153,7 +153,7 @@ def _parse_hora(texto: str, default: time) -> tuple[time, bool]:
         return default, False
 
 
-def semanas_disponiveis(hoje: date, passadas: int = 4, futuras: int = 12) -> list[date]:
+def semanas_disponiveis(hoje: date, passadas: int = SEMANAS_PASSADAS, futuras: int = SEMANAS_FUTURAS) -> list[date]:
     """Segundas-feiras de (passadas) semanas atrás até (futuras) semanas à frente."""
     segunda_atual = hoje - timedelta(days=hoje.weekday())
     return [segunda_atual + timedelta(weeks=i) for i in range(-passadas, futuras + 1)]
